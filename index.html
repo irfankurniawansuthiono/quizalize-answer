@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quizalize Answer Analyzer</title>
+    <style>
+        :root {
+            --bg-color: #1a1a1a;
+            --primary-color: #007bff;
+            --primary-hover-color: #0056b3;
+            --text-color: #f0f0f0;
+            --card-bg-color: #2c2c2c;
+            --border-color: #444;
+            --success-color: #28a745;
+            --error-color: #dc3545;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 2rem;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 800px;
+            background-color: var(--card-bg-color);
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            text-align: center;
+            color: var(--text-color);
+            margin-bottom: 1.5rem;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        #quizUrlInput {
+            flex-grow: 1;
+            padding: 0.75rem 1rem;
+            font-size: 1rem;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        #quizUrlInput:focus {
+            border-color: var(--primary-color);
+        }
+
+        button {
+            padding: 0.75rem 1.5rem;
+            font-size: 1rem;
+            font-weight: bold;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.1s;
+            color: white;
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        #getAnswersBtn {
+            background-color: var(--primary-color);
+        }
+
+        #getAnswersBtn:hover {
+            background-color: var(--primary-hover-color);
+        }
+        
+        #downloadBtn {
+            background-color: var(--success-color);
+            display: block;
+            width: 100%;
+            margin-bottom: 1.5rem;
+        }
+
+        #downloadBtn:hover {
+            background-color: #218838;
+        }
+
+        .status-area {
+            text-align: center;
+            padding: 1rem;
+            margin-top: 1rem;
+            border-radius: 8px;
+        }
+
+        .loader {
+            border: 4px solid #f3f3f330;
+            border-top: 4px solid var(--primary-color);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 1rem auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        #errorMessage {
+            background-color: #dc354520;
+            color: var(--error-color);
+            border: 1px solid var(--error-color);
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        #resultsContainer {
+            margin-top: 2rem;
+            border-top: 1px solid var(--border-color);
+            padding-top: 1.5rem;
+        }
+
+        .qa-item {
+            background-color: var(--bg-color);
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            border-left: 4px solid var(--primary-color);
+        }
+
+        .qa-item p {
+            margin: 0.5rem 0;
+            line-height: 1.6;
+        }
+
+        .qa-item .question-text {
+            font-weight: bold;
+            color: var(--text-color);
+        }
+        
+        .qa-item .answer-text {
+            color: #b8b8b8;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Quizalize Answer Analyzer</h1>
+        <div class="input-group">
+            <input type="text" id="quizUrlInput" placeholder="Tempelkan link kuis Quizalize di sini...">
+            <button id="getAnswersBtn">Dapatkan Jawaban</button>
+        </div>
+
+        <!-- Status Area -->
+        <div id="loader" class="loader hidden"></div>
+        <div id="errorMessage" class="status-area hidden"></div>
+
+        <!-- Results Area -->
+        <div id="resultsContainer" class="hidden">
+            <button id="downloadBtn">Unduh Jawaban (.txt)</button>
+            <div id="qaList"></div>
+        </div>
+    </div>
+
+    <script>
+        // --- Elemen DOM ---
+        const quizUrlInput = document.getElementById('quizUrlInput');
+        const getAnswersBtn = document.getElementById('getAnswersBtn');
+        const loader = document.getElementById('loader');
+        const errorMessage = document.getElementById('errorMessage');
+        const resultsContainer = document.getElementById('resultsContainer');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const qaList = document.getElementById('qaList');
+
+        // --- Fungsi Helper ---
+
+        /**
+         * Membersihkan tag HTML dan prefix dari teks pertanyaan/jawaban.
+         */
+        function parseCleanText(text) {
+            if (typeof text !== 'string') return '';
+            let cleanedText = text.replace(/<\/?p>/gi, "").trim();
+            cleanedText = cleanedText.replace(/^(freetextm|freetext|boolean):\/\//, '');
+            return cleanedText;
+        }
+
+        /**
+         * Memicu unduhan file teks di browser.
+         */
+        function downloadTextFile(content, filename) {
+            const blob = new Blob([content], { type: 'text/plain;charset=utf-8;' });
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            link.setAttribute("href", url);
+            link.setAttribute("download", filename);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        }
+        
+        /**
+         * Mengatur ulang UI ke keadaan awal.
+         */
+        function resetUI() {
+            loader.classList.add('hidden');
+            errorMessage.classList.add('hidden');
+            resultsContainer.classList.add('hidden');
+            qaList.innerHTML = '';
+            errorMessage.textContent = '';
+        }
+
+        // --- Logika Utama ---
+
+        async function handleGetAnswers() {
+            resetUI();
+            
+            const url = quizUrlInput.value.trim();
+            if (!url) {
+                errorMessage.textContent = 'URL tidak boleh kosong.';
+                errorMessage.classList.remove('hidden');
+                return;
+            }
+
+            // Ekstrak Quiz ID dari URL menggunakan Regex
+            const match = url.match(/\/quiz\/([a-f0-9\-]{36})/);
+            const quiz_id = match ? match[1] : null;
+
+            if (!quiz_id) {
+                errorMessage.textContent = 'Format URL tidak valid. Pastikan Anda memasukkan link kuis Quizalize yang benar.';
+                errorMessage.classList.remove('hidden');
+                return;
+            }
+
+            loader.classList.remove('hidden');
+            getAnswersBtn.disabled = true;
+
+            try {
+                // 1. Ambil data kuis dari API
+                const response = await fetch("https://app.quizalize.com/ql/apollo", {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({
+                        query: "query ContentPreviewModalRendererQuery($contentId:ID!){content:node(id:$contentId){... on Content{payload}}}",
+                        variables: { contentId: btoa("Content:" + quiz_id) },
+                    }),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Gagal menghubungi server, status: ${response.status}`);
+                }
+
+                const apiData = await response.json();
+
+                // 2. Validasi dan parse payload
+                if (apiData.errors) {
+                    throw new Error(`API mengembalikan error: ${JSON.stringify(apiData.errors)}`);
+                }
+                const payloadString = apiData.data?.content?.payload;
+                if (!payloadString) {
+                    throw new Error("Payload kuis tidak ditemukan. Pastikan link valid dan Anda memiliki akses.");
+                }
+
+                const questions = JSON.parse(payloadString).questions;
+
+                // 3. Format data untuk ditampilkan dan diunduh
+                let formattedTextForDownload = `Jawaban untuk Kuis ID: ${quiz_id}\n================================\n\n`;
+                
+                questions.forEach((q, index) => {
+                    const questionText = parseCleanText(q.question);
+                    const answerText = parseCleanText(q.answer);
+
+                    // Tambahkan ke file teks untuk diunduh
+                    formattedTextForDownload += `Pertanyaan ${index + 1}: ${questionText}\nJawaban: ${answerText}\n\n--------------------------------\n`;
+
+                    // Buat elemen HTML untuk ditampilkan di halaman
+                    const qaItem = document.createElement('div');
+                    qaItem.className = 'qa-item';
+                    qaItem.innerHTML = `
+                        <p class="question-text">Pertanyaan ${index + 1}: ${questionText}</p>
+                        <p class="answer-text"><strong>Jawaban:</strong> ${answerText}</p>
+                    `;
+                    qaList.appendChild(qaItem);
+                });
+
+                // 4. Siapkan tombol unduh
+                downloadBtn.onclick = () => {
+                    downloadTextFile(formattedTextForDownload, `jawaban-kuis-${quiz_id}.txt`);
+                };
+
+                // 5. Tampilkan hasilnya
+                resultsContainer.classList.remove('hidden');
+
+            } catch (error) {
+                console.error("Terjadi kesalahan pada skrip:", error);
+                errorMessage.textContent = `Gagal mengambil jawaban: ${error.message}`;
+                errorMessage.classList.remove('hidden');
+            } finally {
+                loader.classList.add('hidden');
+                getAnswersBtn.disabled = false;
+            }
+        }
+
+        // Tambahkan event listener ke tombol
+        getAnswersBtn.addEventListener('click', handleGetAnswers);
+        
+        // Izinkan menekan Enter di input field
+        quizUrlInput.addEventListener('keyup', (event) => {
+            if (event.key === 'Enter') {
+                handleGetAnswers();
+            }
+        });
+
+    </script>
+</body>
+</html>
